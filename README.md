@@ -14,13 +14,20 @@ When a task completes an output, the scheduler matches completed outputs
 with unsatisfied prerequisites across the task pool to see if other
 tasks become ready.
 
-*Succeeded* tasks can be dropped from the pool once there are no *waiting*
-tasks left that they could potentially satisfy (roughly, no waiting tasks
-remaining in the same cycle point).
+*Succeeded* tasks can only be forgotten when there are no more *waiting*
+tasks left that could potentially be satisfied by them (roughly, no waiting
+tasks remaining in the same cycle point, modified by intercycle dependence).
 
-*So Cylc 7 extends the workflow by spawning the next instance of each task
-at submit time, not by following the graph! The pre-spawned tasks do then
-run according to the dependencies, however.*
+*So Cylc 7 evolves the workflow forward by spawning the next-cycle instance
+of each task at submit time, not by following the graph! The pre-spawned
+tasks do then run according to the graph, however.*
+
+Comments:
+ - the historical justification for this algorithm is documented elsewhere
+ - it works amazingly well, but has some notable problems resulting from:
+   - spawning of tasks long before they are needed, and a large task pool
+   - `O(n^2)` (in number of tasks) prerequisite-output matching
+   - implicit dependence on previous-instance submit
 
 ## Cylc 8 Scheduling Algorithm (simplified)
 
@@ -29,11 +36,15 @@ initializes its task pool with a waiting instance of every parentless task,
 out to the runahead limit. These can all submit immediately (no prerequisites).
 
 Whenever a task completes an output the scheduler spawns the associated
-downstream child "on demand" (so unused branches do not get spawned at all).
+downstream child task "on demand".
 
 *Cylc 8 evolves and runs the graph purely according to the dependencies.*
-This is conceptually much simpler than Cylc 7 algorithm and solves all of its
-problems - see below.
+
+Comments:
+- this is conceptually much simpler than Cylc 7
+- it solves all of the problems that the Cylc 7 algorithm suffers from
+- the much smaller task pool can make some interventions more difficult
+  (this will be resolved by upcoming 8.x releases)
 
 -----------
 
@@ -80,27 +91,33 @@ one waiting (spawned by `1/b:succeeded`, still waiting on `1/c:succeeded`).
 ### Cylc 7
 
 In Cylc 7 you can only match and operate on tasks that remain in the task pool.
-Beyond that you must first *insert* tasks into the pool.
 
-To rerun a sub-graph in Cylc 7 you have to "reset" existing (pool) sub-graph
-members to waiting and insert any ex-pool members, to set up the re-run before
-triggering the initial tasks.
-
-However, in clock-limited workflows the bloated Cylc 7 pool makes it likely
-that "all the tasks" remain in the pool for the current cycle, which makes
+However, in clock-limited real-time workflows the bloated Cylc 7 pool makes it
+likely that "all the tasks" remain in the pool for the current cycle, which makes
 many interventions easier than one might expect for this model.
+
+Beyond the task pool you must *insert* tasks before running anything:
+- to rerun a sub-graph, insert all sub-graph tasks before triggering the first
+  (because Cylc 7 doesn't automatically spawn tasks according to the graph)
+- and the inserted tasks will spawn their next-cycle instances on submit
+  (as per Cylc 7 normal) which will likely result in "stuck" waiting tasks
+  that need to be removed in the next cycle
 
 ### Cylc 8
 
-In Cylc 8 you can operate on individual tasks anywhere in the infinite graph,
-and downstream consequences will flow naturally with no pre-setup (reset or
-insert) required.
+In Cylc 8 you can operate on individual tasks anywhere in the infinite graph.
 
-However, matching tasks by glob or family name currently (Cylc 8.3.0) only works
-in the task pool. This is just like Cylc 7, but the much leaner pool (e.g. no
-succeeded tasks in the Cylc 8 pool) can make some mass interventions more
-involved than for Cylc 7, e.g. to target individual family members. This will
-become much easier soon though, in future releases.
+Downstream activity will flow naturally with no setup (reset or insert)
+required because the Cylc 8 algorithm automatically spawns future tasks
+exactly as the graph dictates.
+
+*Matching tasks by glob or family name currently (Cylc 8.3.0) only works
+in the task pool.* This is just like Cylc 7, but the much leaner Cylc 8 task
+pool can make mass interventions more difficult than for
+all-tasks-still-in-the-pool Cylc 7 cases,
+e.g. to target all members of a family by family name.
+
+This will become much easier in future 8.x releases, however.
 
 -------------
 
