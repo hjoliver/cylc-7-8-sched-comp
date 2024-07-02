@@ -35,6 +35,8 @@ Comments:
    - spawning of tasks long before they are needed, and a large task pool
    - `O(n^2)` (in number of tasks) prerequisite-output matching
    - implicit dependence on previous-instance submit
+   - the non-graph based spawning method, if manually triggering sub-graphs
+     beyond the task pool
 
 ### Cylc 7 Manual Interventions
 
