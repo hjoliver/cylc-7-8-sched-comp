@@ -31,6 +31,8 @@ tasks do then run according to the graph, however.*
 
 Comments:
  - the historical justification for this algorithm is documented elsewhere
+   - briefly, Cylc was originally a self-organising scheduler in which the
+     dependency graph emerged at run time rather then being specified up front
  - it works amazingly well, but has some notable problems resulting from:
    - spawning of tasks long before they are needed, and a large task pool
    - `O(n^2)` (in number of tasks) prerequisite-output matching
