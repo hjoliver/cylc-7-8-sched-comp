@@ -1,54 +1,59 @@
 # Cylc 7 vs 8 Scheduling Comparison
 
-This page gives an overview of the Cylc 7 and 8 scheduling algorithms,
-how they affect manual interventions, and what you see in the GUIs.
+This is a conceptual look at the Cylc 7 and 8 scheduling models,
+how they impact manual interventions and what you see in the GUIs.
 
-(Many details and edge cases are omitted for clarity).
+(Some details are omitted for clarity).
 
 Terminology:
-- **task pool:** the subset of all the tasks in the potentially infinite graph
-that the scheduler currently retains in memory to support its scheduling algorithm
+- **task pool:** the set of tasks in the potentially infinite graph that the
+scheduler currently holds in memory to support its scheduling algorithm.
 
 ## Cylc 7 Scheduling Algorithm (simplified)
 
-Cylc 7 initializes its *task pool* with a *waiting* instance of every task
-at the first cycle point. Those with no prerequisites can submit immediately.
+A Cylc 7 **task** knows its own prerequisites and its own outputs. It does
+not know what other tasks depend on those outputs.
 
-When a task (e.g. `a.1`) submits, the scheduler spawns its next-cycle
-instance (`a.2`) as *waiting*.
+Cylc 7 initializes its task pool with a *waiting* instance of every task
+at the first cycle point. Tasks with no prerequisites can submit immediately.
 
-When a task completes an output, the scheduler matches completed outputs
-with unsatisfied prerequisites across the task pool to see if other
-tasks become ready.
+Then, when a task completes an output (e.g. `a.1:succeeded`), the scheduler
+matches all completed outputs with all unsatisfied prerequisites across the
+task pool, to see if other tasks become ready.
+
+Additionally, when a task (e.g. `a.1`) submits, the scheduler spawns its
+next-cycle instance (e.g. `a.2`) as *waiting*.
 
 *Succeeded* tasks can only be forgotten when there are no more *waiting*
 tasks left that could potentially be satisfied by them (roughly, no waiting
 tasks remaining in the same cycle point, modified by intercycle dependence).
+This makes the task pool quite bloated (roughly, one waiting instance of
+every task, and all succeeded instances across the range of active cycles
+must be held in memory).
 
-*So Cylc 7 evolves the workflow forward by spawning the next-cycle instance
+*Cylc 7 evolves the workflow forward by spawning the next-cycle instance
 of each task at submit time, not by following the graph! The pre-spawned
 tasks do then run according to the graph, however.*
 
 Comments:
- - the historical justification for this algorithm is documented elsewhere
-   - briefly, Cylc was originally a self-organising scheduler in which the
-     dependency graph emerged at run time rather then being specified up front
- - it works amazingly well, but has some notable problems resulting from:
+ - the historical justification for this algorithm, briefly, is that Cylc was
+    originally a self-organising scheduler in which the dependency graph
+    emerged at run time rather then being specified up front
+ - this works amazingly well, but there are some problems resulting from:
    - spawning of tasks long before they are needed, and a large task pool
-   - `O(n^2)` (in number of tasks) prerequisite-output matching
-   - implicit dependence on previous-instance submit
-   - the non-graph based spawning method, if manually triggering sub-graphs
-     beyond the task pool
+   - `O(n^2)` (in number of tasks) prerequisite-to-output matching
+   - implicit dependence on previous-instance submit, for every task
+   - the spawn-on-submit model does not perpetuate the flow naturally if you
+     need to manually trigger a sub-graph beyond the main task pool
 
 ### Cylc 7 Manual Interventions
 
 In Cylc 7 you can only match and operate on tasks that remain in the task pool.
-
-However, in clock-limited real-time workflows the bloated Cylc 7 pool makes it
+However, in clock-limited real-time workflows the bloated task pool makes it
 likely that "all the tasks" remain in the pool for the current cycle, which makes
 mass interventions easier than one might expect for this model.
 
-Beyond the task pool you must *insert* tasks before running anything:
+Beyond the task pool you must *insert* tasks back into the pool:
 - to rerun a sub-graph, insert all sub-graph tasks before triggering the first
   (because Cylc 7 doesn't automatically spawn tasks according to the graph)
 - and the inserted tasks will spawn their next-cycle instances on submit
@@ -66,12 +71,16 @@ in the current cycle of real-time clock-triggered workflows.
 
 ## Cylc 8 Scheduling Algorithm (simplified)
 
+A Cylc 8 **task** knows its own prerequisites, its own outputs, **and** the
+downstream tasks (children) that depend on those outputs.
+
 The dependency graph is a network of `parent => child` relationships. Cylc 8
 initializes its task pool with a waiting instance of every parentless task,
-out to the runahead limit. These can all submit immediately (no prerequisites).
+out to the runahead limit. These can all submit immediately (because, by
+definition, they have no prerequisites).
 
-Whenever a task completes an output the scheduler spawns the associated
-downstream child task "on demand".
+Then whenever a task completes an output the scheduler spawns the downstream
+children of that output "on demand".
 
 Tasks can be forgotten immediately once they reach a final status (succeeded,
 failed, expired) so long as their required outputs are complete. 
@@ -80,22 +89,23 @@ failed, expired) so long as their required outputs are complete.
 
 Comments:
 - this is conceptually much simpler than Cylc 7
-- it solves all of the problems that the Cylc 7 algorithm suffers from
+- it solves all of the problems that afflict the Cylc 7 scheduling algorithm
+- (it also supports a powerful new capability: multiple concurrent runs through
+  the graph - "flows" - starting from any task(s) in the graph)  
 
 ### Cylc 8 Manual Interventions
 
 Unlike Cylc 7, in Cylc 8 you can operate on individual tasks anywhere in
 the infinite graph.
-Downstream activity will flow naturally with no setup (reset or insert)
-required because the Cylc 8 algorithm automatically spawns future tasks
-"on demand" exactly as the graph dictates.
+
+Downstream activity flows naturally with no setup (task insert and reset)
+required, because downstream tasks spawn "on demand" as the graph dictates.
 
 Just like Cylc 7, matching tasks by glob or family name only works in the
-task pool.
-
-However, the leaner Cylc 8 task pool can make mass interventions more
-difficult than Cylc 7 (assuming that all involved tasks remain in the
-Cylc 7 task pool, that is) e.g. to target all members of a family by name.
+task pool. However, as of 8.3.2 the leaner Cylc 8 task pool can make some
+mass interventions more difficult than Cylc 7 (assuming that all involved
+tasks remain in the Cylc 7 task pool, that is) e.g. to target all members
+of a family by name if not all members are active yet.
 
 *We will address out-of-pool task matching by family name and glob in
 upcoming 8.x releases.*
@@ -106,7 +116,7 @@ The Cylc 8 GUI shows (in all views) a configurable graph-based window around
 the task pool. The default `n=1` window shows all tasks out to 1 graph edge
 from the (`n=0`) task pool.
 
-How much of the workflow you see in the Cylc 8 GUI is just a choice.
+How much of the workflow you see around the active tasks is just a choice.
 
 -----------
 
@@ -152,3 +162,55 @@ understanding the scheduling algorithm.
 
 The Cylc 8 pool is easily explained: there are 3 active tasks (obvious) and
 one waiting (spawned by `1/b:succeeded`, still waiting on `1/c:succeeded`). 
+
+-------------
+
+## Cylc 7 vs Cylc 8 Manual Intervention - Illustrated Example
+
+### Cylc 7
+
+Cylc 7 tasks:
+ - know only their own prerequisites and outputs
+ - prerequisites
+   - can only be satisfied naturally by upstream task outputs
+ - outputs can be completed:
+   - naturally as task jobs run
+   - or manually but indirectly by resetting task state (e.g. resetting a task
+     to the "succeeded" state also sets its succeeded output)
+
+In effect, Cylc 7 tasks wait on their parent outputs, rather than on their own
+prerequisites (because their prerequisites can only be satisfied by upstream
+outputs). So to rerun a past task in Cylc 7 (without *triggering* it) you need to:
+ 1. *insert* the task back into the pool in the *waiting* (unsatisfied) state
+ 2. *insert* its upstream parents back into the pool in the *waiting* state
+ 3. *reset* the upstream parents to *succeeded*, so the scheduling algorithm can
+    use their outputs to satisfy the child's prerequisites 
+ 4. (the flow will only continue from there so far as you have reset all downstream
+     tasks to *waiting*, and it will likely spawn stuck off-flow tasks that need
+    removal to avoid a stall - via the next-instance spawn-on-submit mechanism)
+
+### Cylc 8
+
+Cylc 8 tasks:
+ - know their own prerequisites, outputs, and the downstream tasks (children)
+   that depend on those outputs
+ - prerequisites can be satisified individually:
+   - on demand, when upstream tasks complete outputs
+   - manually (`cylc set --pre`)
+   - this contributes to a tasks readiness to run
+ - outputs can be satisfied individually:
+   - naturally, when a task completes an output
+   - manually (`cylc set --out`)
+   - this contributes to completion of the task's outputs
+   - and spawns downstream children (with corresponding prerequisites satisfied)
+
+In effect, Cylc 8 tasks wait only on their own prerequisites, rather than on
+the corresponding upstream outputs (because you can manually set individual
+prerequisites without touching upstream tasks).
+So to rerun a past task in Cylc 8 (without just *triggering* it) you can:
+ - set its prerequisites (`cylc set --pre`)
+ OR
+- set the relevant outputs of its parents 
+
+Then the flow will continue downstream naturally (so long as you set
+`--flow=new` to allow retraversal of graph sections that already ran)
