@@ -6,8 +6,10 @@ how they impact manual interventions and what you see in the GUIs.
 (Some details are omitted for clarity).
 
 Terminology:
-- **task pool:** the set of tasks in the potentially infinite graph that the
-scheduler currently holds in memory to support its scheduling algorithm.
+- **task pool:** the subset of all the tasks in the potentially infinite graph
+that are currently held in memory to support the scheduling algorithm. In Cylc
+8 this is also called the "active task pool" and the "n=0 window" (which refers
+to the GUI window constructed by moving n graph edges out from the task pool. 
 
 ## Cylc 7 Scheduling Algorithm (simplified)
 
@@ -101,14 +103,17 @@ the infinite graph.
 Downstream activity flows naturally with no setup (task insert and reset)
 required, because downstream tasks spawn "on demand" as the graph dictates.
 
-Just like Cylc 7, matching tasks by glob or family name only works in the
-task pool. However, as of 8.3.2 the leaner Cylc 8 task pool can make some
-mass interventions more difficult than Cylc 7 (assuming that all involved
-tasks remain in the Cylc 7 task pool, that is) e.g. to target all members
-of a family by name if not all members are active yet.
+Just like Cylc 7, matching tasks by glob or family name (currently) only
+works in the task pool. However, selecting tasks was often easier in Cylc 7
+because the bloated nature of the pool was such that tasks you wanted to
+select were generally (if not always) present.
 
-*We will address out-of-pool task matching by family name and glob in
-upcoming 8.x releases.*
+With Cylc 8 we don't have a bloated pool to run globs over, so selecting 
+(e.g.) families of tasks is tricky as we would have to work out what tasks
+"could" enter the pool rather than what tasks "are currently" in the pool.
+
+*We will address out-of-pool task matching by family and glob in upcoming
+ 8.x releases.*
 
 ### What You See in the Cylc 8 GUI
 
